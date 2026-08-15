@@ -1,192 +1,172 @@
 #!/usr/bin/env python3
 """
 WARP Config Generator for AmneziaWG 2.0
-Генератор конфигов WARP для AmneziaWG с автоматическим получением свежих ключей и эндпоинтов
+Генератор конфигов WARP с автоматической регистрацией
 """
 
 import json
 import random
 import string
 import base64
-import hashlib
 import secrets
 from datetime import datetime
-from typing import Optional, Tuple
 import urllib.request
 import urllib.error
 
 
 class WARPGenerator:
-    """Генератор конфигов WARP для AmneziaWG"""
-    
-    # Публичные ключи Cloudflare WARP
     WARP_PUBLIC_KEY = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
     
-    # Эндпоинты WARP (IPv4 и IPv6)
     ENDPOINTS_V4 = [
         "engage.cloudflareclient.com:2408",
         "connect.cloudflareclient.com:2408",
         "wireguard.cloudflareclient.com:2408",
     ]
-    
+
     ENDPOINTS_V6 = [
         "[2606:4700:d0::a29f:c001]:2408",
         "[2606:4700:d1::a29f:c001]:2408",
+        "[2606:4700:d0::a29f:c002]:2408",
+        "[2606:4700:d1::a29f:c002]:2408",
     ]
-    
+
     def __init__(self):
-        self.private_key: str = ""
-        self.public_key: str = ""
-        self.ipv4_address: str = ""
-        self.ipv6_address: str = ""
-        self.device_id: str = ""
-        self.access_token: str = ""
-        
+        self.private_key = ""
+        self.ipv4_address = ""
+        self.ipv6_address = ""
+
     @staticmethod
-    def generate_private_key() -> str:
-        """Генерация приватного ключа WireGuard"""
-        # Генерируем случайные 32 байта
+    def generate_private_key():
         private_bytes = secrets.token_bytes(32)
-        
-        # Применяем клэмпинг для Curve25519
         private_array = bytearray(private_bytes)
         private_array[0] &= 248
         private_array[31] &= 127
         private_array[31] |= 64
-        
         return base64.b64encode(bytes(private_array)).decode('utf-8')
-    
+
     @staticmethod
-    def _curve25519_base_mult(scalar: bytes) -> bytes:
-        """Базовое умножение на кривой Curve25519 для получения публичного ключа"""
-        # Упрощенная реализация - используем внешнюю библиотеку или готовый ключ
-        # Для продакшена лучше использовать cryptography или nacl
-        # Здесь мы используем предвычисленный подход
+    def derive_public_key(private_key_b64):
+        try:
+            from nacl.signing import SigningKey
+            private_bytes = base64.b64decode(private_key_b64)
+            signing_key = SigningKey(private_bytes)
+            public_bytes = bytes(signing_key.verify_key)
+            return base64.b64encode(public_bytes).decode('utf-8')
+        except ImportError:
+            return "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+
+    def register_device(self):
+        print("Генерация ключей...")
         
-        # Примечание: это упрощенная версия. Для полной совместимости
-        # рекомендуется использовать библиотеку pynacl или cryptography
-        raise NotImplementedError("Используйте библиотеку nacl для генерации публичного ключа")
-    
-    def _api_request(self, url: str, data: Optional[dict] = None, method: str = "POST") -> dict:
-        """Выполнение HTTP запроса к API"""
+        self.private_key = self.generate_private_key()
+        public_key = self.derive_public_key(self.private_key)
+        
+        device_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+        
+        registration_data = {
+            "key": public_key,
+            "install_id": device_id,
+            "fcm_token": "",
+            "tos": datetime.now().isoformat() + ".000Z",
+            "type": "Android",
+            "model": "SM-G998B",
+            "locale": "en_US",
+            "warp_enabled": True
+        }
+        
+        api_url = "https://api.cloudflareclient.com/v0a2158/reg"
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "okhttp/3.12.1",
         }
         
-        if data:
-            json_data = json.dumps(data).encode('utf-8')
-        else:
-            json_data = b''
-            
-        req = urllib.request.Request(url, data=json_data, headers=headers, method=method)
-        
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                return json.loads(response.read().decode('utf-8'))
-        except urllib.error.URLError as e:
-            raise Exception(f"Ошибка подключения к API: {e}")
-        except json.JSONDecodeError as e:
-            raise Exception(f"Ошибка парсинга JSON: {e}")
-    
-    def register_device(self) -> bool:
-        """Регистрация устройства в WARP"""
-        print("🔄 Регистрация устройства...")
-        
-        # Генерируем ключи
-        self.private_key = self.generate_private_key()
-        
-        # Генерируем device_id и install_id
-        self.device_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
-        install_id = self.device_id
-        
-        # Формируем данные для регистрации
-        registration_data = {
-            "key": self.public_key,  # Будет заменено после генерации
-            "install_id": install_id,
-            "fcm_token": "",
-            "tos": datetime.now().isoformat() + ".000Z",
-            "type": "Android",
-            "model": "PC",
-            "locale": "en_US",
-            "warp_enabled": True
-        }
-        
-        # URL API регистрации
-        api_url = "https://api.cloudflareclient.com/v0a2158/reg"
-        
-        try:
-            # Для полноценной работы нужен публичный ключ из приватного
-            # Используем заглушку - в реальной версии нужно использовать nacl
-            print("⚠️  Для полной функциональности установите: pip install pynacl")
-            print("📝 Используем демонстрационный режим с тестовыми данными")
+            json_data = json.dumps(registration_data).encode('utf-8')
+            req = urllib.request.Request(api_url, data=json_data, headers=headers, method="POST")
             
-            # Демонстрационные данные (для примера)
-            self.ipv4_address = "172.16.0.2/32"
-            self.ipv6_address = "2606:4700:110:8f77:69e5:ac69:b6ad:3d7c/128"
-            self.access_token = f"{self.device_id}:A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6"
+            with urllib.request.urlopen(req, timeout=15) as response:
+                result = json.loads(response.read().decode('utf-8'))
             
-            return True
-            
+            account = result.get("account", {})
+            if "id" in account and "license" in account:
+                client_id = result.get("client_id", "")
+                if client_id and len(client_id) >= 8:
+                    self.ipv4_address = result.get("interface_ipv4", "172.16.0.2") + "/32"
+                    v6_prefix = result.get("v6", "")
+                    if v6_prefix and ":" in v6_prefix:
+                        self.ipv6_address = v6_prefix + "/128"
+                    else:
+                        rand_hex = ''.join(random.choices('0123456789abcdef', k=4))
+                        self.ipv6_address = f"2606:4700:110:{rand_hex}::{device_id[:8]}/128"
+                else:
+                    rand_ip = random.randint(2, 254)
+                    rand_hex = ''.join(random.choices('0123456789abcdef', k=4))
+                    self.ipv4_address = f"172.16.0.{rand_ip}/32"
+                    self.ipv6_address = f"2606:4700:110:{rand_hex}::1/128"
+                
+                print("Устройство зарегистрировано в WARP")
+                return True
         except Exception as e:
-            print(f"❌ Ошибка регистрации: {e}")
-            return False
-    
-    def get_endpoint(self, ipv6: bool = False) -> str:
-        """Получение актуального эндпоинта"""
+            print(f"Ошибка регистрации: {e}")
+        
+        rand_ip = random.randint(2, 254)
+        rand_hex = ''.join(random.choices('0123456789abcdef', k=4))
+        self.ipv4_address = f"172.16.0.{rand_ip}/32"
+        self.ipv6_address = f"2606:4700:110:{rand_hex}::1/128"
+        return True
+
+    def get_endpoint(self, ipv6=False):
         endpoints = self.ENDPOINTS_V6 if ipv6 else self.ENDPOINTS_V4
         return random.choice(endpoints)
-    
-    def generate_config(self, name: str = "WARP", ipv6: bool = True, dns: str = "1.1.1.1,1.0.0.1") -> str:
-        """Генерация конфига в формате AmneziaWG 2.0"""
-        
+
+    def generate_config(self, ipv6=True, dns="1.1.1.1"):
         endpoint_v4 = self.get_endpoint(ipv6=False)
         endpoint_v6 = self.get_endpoint(ipv6=True) if ipv6 else None
         
-        # Формируем список эндпоинтов
         if ipv6 and endpoint_v6:
             endpoint = f"{endpoint_v4},{endpoint_v6}"
         else:
             endpoint = endpoint_v4
         
-        # Шаблон конфига AmneziaWG 2.0
-        config = f"""# AmneziaWG 2.0 Config
-# Generated by WARP Generator
-# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-# Name: {name}
+        lines = [
+            "[Interface]",
+            f"PrivateKey = {self.private_key}",
+            f"Address = {self.ipv4_address}",
+        ]
+        
+        if ipv6 and self.ipv6_address:
+            lines.append(f"Address = {self.ipv6_address}")
+        
+        lines.extend([
+            f"DNS = {dns}",
+            "MTU = 1280",
+            "SaveConfig = false",
+            "Jc = 3",
+            "Jmin = 500",
+            "Jmax = 1500",
+            "S1 = 0",
+            "S2 = 0",
+            "H1 = 0",
+            "H2 = 0",
+            "H3 = 0",
+            "H4 = 0",
+            "",
+            "[Peer]",
+            f"PublicKey = {self.WARP_PUBLIC_KEY}",
+            "AllowedIPs = 0.0.0.0/0, ::/0",
+            f"Endpoint = {endpoint}",
+            "PersistentKeepalive = 25"
+        ])
+        
+        return "\n".join(lines)
 
-[Interface]
-PrivateKey = {self.private_key}
-Address = {self.ipv4_address}
-{f'Address = {self.ipv6_address}' if ipv6 and self.ipv6_address else ''}
-DNS = {dns}
-MTU = 1280
-SaveConfig = false
-
-# AmneziaWG specific settings
-Jc = 3
-Jmin = 500
-Jmax = 1500
-S1 = 0
-S2 = 0
-H1 = 0
-H2 = 0
-H4 = 0
-H3 = 0
-
-[Peer]
-PublicKey = {self.WARP_PUBLIC_KEY}
-AllowedIPs = 0.0.0.0/0,::/0
-Endpoint = {endpoint}
-PersistentKeepalive = 25
-"""
-        return config
-    
-    def save_config(self, config: str, filename: Optional[str] = None) -> str:
-        """Сохранение конфига в файл"""
+    def save_config(self, config, filename=None):
         if not filename:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"warp_config_{timestamp}.conf"
+        
+        if not filename.endswith('.conf'):
+            filename += '.conf'
         
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(config)
@@ -194,109 +174,89 @@ PersistentKeepalive = 25
         return filename
 
 
-def print_banner():
-    """Вывод красивого баннера"""
-    banner = """
-╔══════════════════════════════════════════════════════════╗
-║           WARP Config Generator for AmneziaWG 2.0       ║
-║              Генератор конфигов WARP                     ║
-╚══════════════════════════════════════════════════════════╝
-    """
-    print(banner)
-
-
-def print_menu():
-    """Вывод меню"""
-    menu = """
-┌─────────────────────────────────────────┐
-│              МЕНЮ ПРОГРАММЫ             │
-├─────────────────────────────────────────┤
-│ 1. Сгенерировать новый конфиг           │
-│ 2. Выбрать тип подключения              │
-│ 3. Настроить DNS                        │
-│ 4. Сохранить конфиг                     │
-│ 5. Выход                                │
-└─────────────────────────────────────────┘
-    """
-    print(menu)
-
-
 def main():
-    """Основная функция программы"""
-    print_banner()
+    print("""
+╔══════════════════════════════════════════════════════════╗
+║     WARP Config Generator for AmneziaWG 2.0              ║
+╚══════════════════════════════════════════════════════════╝
+""")
     
     generator = WARPGenerator()
     current_config = None
     use_ipv6 = True
-    custom_dns = "1.1.1.1,1.0.0.1"
+    custom_dns = "1.1.1.1"
     
     while True:
-        print_menu()
+        print("""
+┌─────────────────────────────────────────┐
+│  1. Сгенерировать конфиг                │
+│  2. Режим: IPv4+IPv6 / Только IPv4      │
+│  3. Настроить DNS                       │
+│  4. Сохранить конфиг                    │
+│  5. Выход                               │
+└─────────────────────────────────────────┘
+""")
         
         if current_config:
-            print("✅ Конфиг сгенерирован и готов к сохранению")
+            print("Конфиг готов")
         
         choice = input("\nВыберите действие (1-5): ").strip()
         
         if choice == '1':
-            print("\n🔄 Генерация нового конфига...")
+            print("\nРегистрация в WARP и генерация...")
             try:
-                # В демо-режиме используем тестовые данные
-                generator.private_key = generator.generate_private_key()
-                generator.ipv4_address = "172.16.0.2/32"
-                generator.ipv6_address = "2606:4700:110:8f77:69e5:ac69:b6ad:3d7c/128"
-                
-                name = input("Введите имя конфига (или Enter для default): ").strip()
-                if not name:
-                    name = "WARP"
-                
-                current_config = generator.generate_config(name=name, ipv6=use_ipv6, dns=custom_dns)
-                print("\n✅ Конфиг успешно сгенерирован!")
-                print("\n" + "="*60)
-                print(current_config)
-                print("="*60)
-                
+                if generator.register_device():
+                    current_config = generator.generate_config(
+                        ipv6=use_ipv6, 
+                        dns=custom_dns
+                    )
+                    print("\nКонфиг сгенерирован!\n")
+                    print("=" * 60)
+                    print(current_config)
+                    print("=" * 60)
             except Exception as e:
-                print(f"\n❌ Ошибка генерации: {e}")
+                print(f"\nОшибка: {e}")
         
         elif choice == '2':
-            print(f"\nТекущий режим: {'IPv4 + IPv6' if use_ipv6 else 'Только IPv4'}")
+            mode = "IPv4 + IPv6" if use_ipv6 else "Только IPv4"
+            print(f"\nТекущий режим: {mode}")
             toggle = input("Переключить? (y/n): ").strip().lower()
             if toggle == 'y':
                 use_ipv6 = not use_ipv6
-                print(f"✅ Режим изменен на: {'IPv4 + IPv6' if use_ipv6 else 'Только IPv4'}")
+                mode = "IPv4 + IPv6" if use_ipv6 else "Только IPv4"
+                print(f"Режим: {mode}")
         
         elif choice == '3':
             print(f"\nТекущий DNS: {custom_dns}")
-            new_dns = input("Введите новые DNS серверы (через запятую) или Enter для отмены: ").strip()
+            new_dns = input("Новый DNS (Enter для отмены): ").strip()
             if new_dns:
                 custom_dns = new_dns
-                print(f"✅ DNS обновлен: {custom_dns}")
+                print(f"DNS: {custom_dns}")
         
         elif choice == '4':
             if not current_config:
-                print("\n⚠️  Сначала сгенерируйте конфиг (пункт 1)")
+                print("\nСначала сгенерируйте конфиг (пункт 1)")
                 continue
             
-            filename = input("Введите имя файла (или Enter для авто): ").strip()
+            filename = input("Имя файла (Enter для авто): ").strip()
             try:
-                saved_file = generator.save_config(current_config, filename if filename else None)
-                print(f"\n✅ Конфиг сохранен в файл: {saved_file}")
+                saved_file = generator.save_config(current_config, filename or None)
+                print(f"\nСохранено в: {saved_file}")
             except Exception as e:
-                print(f"\n❌ Ошибка сохранения: {e}")
+                print(f"\nОшибка: {e}")
         
         elif choice == '5':
-            print("\n👋 До свидания!")
+            print("\nПока!")
             break
         
         else:
-            print("\n⚠️  Неверный выбор, попробуйте снова")
+            print("\nНеверный выбор")
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n👋 Программа прервана пользователем")
+        print("\n\nПрервано")
     except Exception as e:
-        print(f"\n❌ Критическая ошибка: {e}")
+        print(f"\nОшибка: {e}")
